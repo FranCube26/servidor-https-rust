@@ -1,0 +1,19 @@
+[package]
+name = "servidor-https-rust"
+version = "0.1.0"
+edition = "2021"
+authors = ["[Nombre 1]", "[Nombre 2]"]
+description = "Servidor HTTPS multihilo en Rust con pool de hilos y rustls"
+
+[dependencies]
+# rustls 0.23: TLS puro en Rust. Desactivamos el proveedor por defecto (aws-lc-rs,
+# que necesita cmake) y usamos `ring`, que se compila con el compilador de MSVC.
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
+rustls-pemfile = "2"
+# rcgen genera el certificado autofirmado para la demo.
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
+num_cpus = "1"
+
+[profile.release]
+opt-level = 3
+strip = true
