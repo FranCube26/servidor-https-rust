@@ -216,7 +216,7 @@ const PORTADA: &str = r#"<!doctype html>
 <head><meta charset="utf-8"><title>Servidor HTTPS en Rust</title></head>
 <body>
   <h1>servidor-https-rust</h1>
-  <p>HTTPS con rustls + pool de hilos. Elaborado por [Nombre 1] y [Nombre 2].</p>
+  <p>HTTPS con rustls + pool de hilos. Elaborado por Francisco Sevilla y Yeimar Gonzalez.</p>
   <ul>
     <li><a href="/health">/health</a></li>
     <li><a href="/info">/info</a></li>

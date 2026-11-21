@@ -3,7 +3,7 @@
 Servidor **HTTPS multihilo** escrito en Rust usando un **pool de hilos fijo** y **rustls** (TLS implementado en Rust, sin OpenSSL). Incluye además documentación de investigación y un guion para grabar el video explicativo.
 
 **Entrega:** domingo 22 de noviembre de 2026  
-**Integrantes (grupo máx. 2):** [Nombre 1] · [Nombre 2]
+**Integrantes (grupo máx. 2):** Francisco Sevilla · Yeimar Gonzalez
 
 ---
 
@@ -124,5 +124,5 @@ Los tests cubren el parser de peticiones (GET, POST con `Content-Length`), el en
 
 ## Autores
 
-[Nombre 1] · [Nombre 2]  
+Francisco Sevilla · Yeimar Gonzalez  
 Trabajo grupal — máximo 2 integrantes.

@@ -1,6 +1,6 @@
 # Investigación: servidor HTTPS multihilo en Rust
 
-**Integrantes:** [Nombre 1] · [Nombre 2]  
+**Integrantes:** Francisco Sevilla · Yeimar Gonzalez  
 **Fecha:** 21 de noviembre de 2026  
 **Entrega:** domingo 22 de noviembre de 2026
 

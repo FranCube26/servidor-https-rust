@@ -2,7 +2,7 @@
 name = "servidor-https-rust"
 version = "0.1.0"
 edition = "2021"
-authors = ["[Nombre 1]", "[Nombre 2]"]
+authors = ["Francisco Sevilla", "Yeimar Gonzalez"]
 description = "Servidor HTTPS multihilo en Rust con pool de hilos y rustls"
 
 [dependencies]
