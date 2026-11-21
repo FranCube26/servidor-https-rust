@@ -17,6 +17,8 @@ Servidor **HTTPS multihilo** escrito en Rust usando un **pool de hilos fijo** y 
 | `src/http.rs` | Lectura de peticiones HTTP/1.1, enrutado y respuestas |
 | `documentacion/investigacion.md` | Marco teórico: TLS, hilos, rustls, HTTP y seguridad |
 | `documentacion/guion_video.md` | Guion cronometrado para explicar el código en video |
+| `documentacion/guion_video.docx` | El mismo guion en formato Word, listo para imprimir o editar |
+| `documentacion/generar_docx.py` | Script que regenera el `.docx` a partir del Markdown |
 | `subir_github.ps1` | Script auxiliar para crear el repo y hacer push con GitHub CLI |
 
 ---
