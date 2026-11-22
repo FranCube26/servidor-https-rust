@@ -61,10 +61,3 @@ gh auth login
 Repo privado:
 .\subir_github.ps1 -Visibility private
 
---------------------------------------------------
-6) GENERAR EL DOCUMENTO WORD DEL GUION
---------------------------------------------------
-python documentacion\generar_docx.py
-
-El archivo se crea en:
-documentacion\guion_video.docx
