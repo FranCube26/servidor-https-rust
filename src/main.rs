@@ -1,14 +1,3 @@
-//! Servidor HTTPS multihilo en Rust.
-//!
-//! Arquitectura:
-//!   TcpListener (un único hilo aceptando conexiones)
-//!        │  TcpStream
-//!        ▼
-//!   ThreadPool (N hilos workers, cola mpsc)
-//!        │  cada worker hace el handshake TLS y responde
-//!        ▼
-//!   rustls + HTTP/1.1 escrito a mano
-
 mod http;
 mod pool;
 mod tls;
@@ -21,7 +10,6 @@ use std::time::Instant;
 
 use rustls::ServerConfig;
 
-/// Opciones simples de línea de comandos (sin dependencias extra).
 struct Args {
     addr: String,
     threads: usize,
@@ -82,16 +70,12 @@ impl Args {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // rustls no elige proveedor criptográfico automáticamente: hay que instalarlo.
-    // Usamos `ring` para que coincida con rcgen y evitamos aws-lc-rs (necesita cmake).
     rustls::crypto::ring::default_provider()
         .install_default()
         .map_err(|_| "no se pudo instalar el proveedor crypto de ring")?;
 
     let args = Args::parse()?;
 
-    // Construimos una sola vez la configuración TLS y la compartimos entre hilos
-    // con Arc: es inmutable y.Send + Sync.
     let config: Arc<ServerConfig> = Arc::new(tls::build_server_config(
         args.cert.as_deref(),
         args.key.as_deref(),
@@ -128,7 +112,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Nombre del hilo actual para los logs (worker-N o main).
 pub fn hilo_actual() -> String {
     std::thread::current()
         .name()

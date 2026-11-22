@@ -1,5 +1,3 @@
-//! HTTP/1.1 mínimo sobre la conexión TLS: lee la petición, enruta y responde.
-
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
@@ -9,7 +7,6 @@ use rustls::{ServerConfig, ServerConnection};
 
 use crate::hilo_actual;
 
-/// Petición HTTP simplificada.
 #[derive(Debug, PartialEq, Eq)]
 struct Request {
     method: String,
@@ -19,7 +16,6 @@ struct Request {
     body: Vec<u8>,
 }
 
-/// Respuesta HTTP simplificada.
 #[derive(Debug, PartialEq, Eq)]
 struct Response {
     status: u16,
@@ -48,8 +44,6 @@ impl Response {
         Self::new(status, "application/json", body.as_bytes().to_vec())
     }
 
-    /// Serializa cabeceras + cuerpo. `Content-Length` evita keep-alive:
-    /// el cliente sabe exactamente cuándo termina la respuesta.
     fn as_bytes(&self) -> Vec<u8> {
         let motivo = match self.status {
             200 => "OK",
@@ -76,7 +70,6 @@ impl Response {
     }
 }
 
-/// Punto de entrada de cada trabajo del pool: handshake TLS + petición + respuesta.
 pub fn handle_connection(
     mut socket: TcpStream,
     config: Arc<ServerConfig>,
@@ -84,7 +77,6 @@ pub fn handle_connection(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let inicio = std::time::Instant::now();
     let peer = socket.peer_addr()?;
-    // Evita que un cliente lento o silencioso ocupe un worker para siempre.
     socket.set_read_timeout(Some(Duration::from_secs(10)))?;
     socket.set_write_timeout(Some(Duration::from_secs(10)))?;
 
@@ -92,8 +84,6 @@ pub fn handle_connection(
 
     let mut conn = ServerConnection::new(config)?;
 
-    // `rustls::Stream` adapta la conexión TLS a los traits Read/Write de Rust,
-    // así que el código HTTP de abajo es idéntico al de un TcpStream plano.
     {
         let mut tls = rustls::Stream::new(&mut conn, &mut socket);
         let request = read_request(&mut tls)?;
@@ -109,7 +99,6 @@ pub fn handle_connection(
         tls.flush()?;
     }
 
-    // Cerramos la sesión TLS con close_notify (un "adiós" criptográfico).
     conn.send_close_notify();
     {
         let mut tls = rustls::Stream::new(&mut conn, &mut socket);
@@ -125,8 +114,6 @@ pub fn handle_connection(
     Ok(())
 }
 
-/// Lee la petición: primero las cabeceras hasta `\r\n\r\n` y luego los bytes
-/// del cuerpo indicados por `Content-Length`.
 fn read_request(stream: &mut impl Read) -> io::Result<Request> {
     let mut buf = Vec::with_capacity(1024);
     let mut trozo = [0_u8; 1024];
@@ -139,7 +126,7 @@ fn read_request(stream: &mut impl Read) -> io::Result<Request> {
         }
         let n = stream.read(&mut trozo)?;
         if n == 0 {
-            break; // cliente cerró antes de terminar las cabeceras
+            break;
         }
         buf.extend_from_slice(&trozo[..n]);
     }
@@ -183,7 +170,6 @@ fn read_request(stream: &mut impl Read) -> io::Result<Request> {
     })
 }
 
-/// Busca un patrón byte a byte (equivalente a `windows().position()`).
 fn encontrar(buf: &[u8], patron: &[u8]) -> Option<usize> {
     if patron.is_empty() || buf.len() < patron.len() {
         return None;
@@ -191,7 +177,6 @@ fn encontrar(buf: &[u8], patron: &[u8]) -> Option<usize> {
     buf.windows(patron.len()).position(|w| w == patron)
 }
 
-/// Enrutador: decide qué responder según método y ruta.
 fn route(req: &Request, threads: usize) -> Response {
     match (req.method.as_str(), req.path.as_str()) {
         ("GET", "/") => Response::html(200, PORTADA),
