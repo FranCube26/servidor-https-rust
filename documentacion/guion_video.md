@@ -1,199 +1,163 @@
-# Guion del video: explicando `servidor-https-rust`
+# Guion del video: explicando `servidor-https-rust` línea por línea
 
-**Duración estimada:** 9 minutos  
-**Estructura:** primero habla **Francisco Sevilla** y después **Yeimar Gonzalez**, sin interrumpirse.  
-**Formato:** pantalla compartida (IDE + terminal) con voz en off; cámara opcional en la intro y el cierre.  
-**Objetivo:** que quien vea el video entienda cada parte del código y pueda ejecutarlo por su cuenta.
+**Duración estimada:** 6–7 minutos  
+**Estructura:** primero habla **Francisco Sevilla** y después **Yeimar Gonzalez**.  
+**Idea:** explicar qué hace cada línea, con palabras sencillas, sin entrar en teoría.
 
-> Convención: **EN PANTALLA** = qué mostrar; **DI** = texto literal a decir; **NOTA** = consejo de grabación.
+> Convención: **EN PANTALLA** = qué mostrar; **DI** = texto literal a decir.
 
-## Orden del video
-
-| Tiempo | Bloque | Quien habla |
+| Tiempo | Parte | Quien habla |
 |---|---|---|
-| 0:00 – 0:30 | Introducción | Francisco Sevilla |
-| 0:30 – 4:20 | Parte 1: arquitectura, `Cargo.toml`, `main.rs` y `pool.rs` | **Francisco Sevilla** |
-| 4:20 – 4:35 | Transición | Francisco → Yeimar |
-| 4:35 – 8:45 | Parte 2: `tls.rs`, `http.rs`, demo y pruebas | **Yeimar Gonzalez** |
-| 8:45 – 9:00 | Cierre y créditos | Ambos |
+| 0:00 – 0:20 | Introducción | Francisco Sevilla |
+| 0:20 – 2:40 | `Cargo.toml`, `main.rs` y `pool.rs` | **Francisco Sevilla** |
+| 2:40 – 2:50 | Transición | Francisco → Yeimar |
+| 2:50 – 6:10 | `tls.rs`, `http.rs` y demostración | **Yeimar Gonzalez** |
+| 6:10 – 6:25 | Cierre | Ambos |
 
 ---
 
 # PARTE 1 — Francisco Sevilla
 
-## 0:00 – 0:30 · Introducción
+## 0:00 – 0:20 · Introducción
 
-**EN PANTALLA:** diapositiva con el título `Servidor HTTPS multihilo en Rust`, los nombres **Francisco Sevilla** y **Yeimar Gonzalez**, fecha y logo de Rust.
+**EN PANTALLA:** título del proyecto con los nombres Francisco Sevilla y Yeimar Gonzalez.
 
 **DI (Francisco):**
-> "Hola, somos Francisco Sevilla y Yeimar Gonzalez. Hoy les vamos a explicar un servidor HTTPS multihilo escrito en Rust: cifra con TLS, reparte conexiones entre varios hilos y responde peticiones HTTP. Yo empiezo explicando la arquitectura y la parte multihilo; después Yeimar se encarga de TLS, del código HTTP y de la demostración en vivo."
-
-**NOTA:** recorta aquí a la ventana del editor con el proyecto abierto.
+> "Hola. Vamos a ver qué hace cada línea de nuestro servidor HTTPS. Yo explico el archivo principal y el pool de hilos; después Yeimar explica TLS y HTTP. Al final lo ejecutamos."
 
 ---
 
-## 0:30 – 1:15 · Arquitectura general
+## 0:20 – 1:20 · `Cargo.toml` y `main.rs`
 
-**EN PANTALLA:** dibujo o diagrama simple:
+**EN PANTALLA:** abrir `Cargo.toml` y luego `src/main.rs`.
 
-```
-TcpListener → TcpStream → ThreadPool → rustls → HTTP/1.1
-                            ↓
-                    worker-0, worker-1, worker-2, worker-3
-```
-
-**DI (Francisco):**
-> "Empecemos por el mapa. Un único hilo se queda en `TcpListener::bind` esperando conexiones. Cuando llega una, no la atiende ahí mismo: la mete en una cola. Cuatro hilos workers —o los que digamos por argumento— sacan trabajos de esa cola, hacen el handshake TLS y escriben la respuesta. Así el hilo que acepta nunca se bloquea cifrando, y el número de hilos siempre está acotado."
+- `rustls = "0.23"` → librería para hacer TLS, o sea HTTPS.
+- `rustls-pemfile = "2"` → lee los archivos de certificado.
+- `rcgen = "0.13"` → crea el certificado de prueba.
+- `num_cpus = "1"` → cuenta los procesadores para elegir el número de hilos.
 
 **DI (Francisco):**
-> "Fíjense en la diferencia con un servidor que crea un hilo por conexión: aquí no importa si llegan mil peticiones, seguiremos teniendo cuatro hilos. Eso es *backpressure* natural."
+> "En `Cargo.toml` solo están esas cuatro librerías. Ahora vamos a `main.rs`, que es donde empieza todo."
+
+**EN PANTALLA:** resaltar estas líneas de `main.rs`:
+
+- `mod http; mod pool; mod tls;` → trae los otros tres archivos del proyecto.
+- `rustls::crypto::ring::default_provider().install_default()?;` → enciende el motor de cifrado.
+- `let args = Args::parse()?;` → lee lo que escribimos al ejecutar: `--threads`, `--addr`, etc.
+- `let config = Arc::new(tls::build_server_config(...)?);` → prepara el certificado una sola vez y lo deja listo para compartir.
+- `let pool = pool::ThreadPool::new(args.threads);` → crea los hilos workers.
+- `let listener = TcpListener::bind(&args.addr)?;` → abre el puerto 8443 y se queda escuchando.
+- `for stream in listener.incoming()` → por cada cliente que llega, entra al bucle.
+- `pool.execute(move || { ... });` → mete ese cliente en la cola de trabajo.
+- `http::handle_connection(stream, config, threads)` → el worker se encarga de cifrar y responder.
+
+**DI (Francisco):**
+> "Lo importante es que el servidor no atiende al cliente en el hilo principal. Solo lo mete en la cola y sigue aceptando más clientes. `move` hace que el cliente viaje al hilo worker."
 
 ---
 
-## 1:15 – 2:30 · `Cargo.toml` y `main.rs`
+## 1:20 – 2:40 · `pool.rs`, los hilos
 
-**EN PANTALLA:** abrir `Cargo.toml`, luego `src/main.rs` desde la línea 1.
+**EN PANTALLA:** abrir `src/pool.rs`.
+
+- `type Job = Box<dyn FnOnce() + Send + 'static>;` → define un trabajo: una función que se corre una vez y se puede enviar a otro hilo.
+- `let (sender, receiver) = mpsc::channel::<Job>();` → crea la cola: `sender` mete trabajos, `receiver` los saca.
+- `let receiver = Arc::new(Mutex::new(receiver));` → la cola se comparte entre los hilos; el `Mutex` hace que solo uno saque cada trabajo.
+- `Worker::new(id, Arc::clone(&receiver))` → crea cada hilo y le da la misma cola.
+- `.name(format!("worker-{id}"))` → le pone nombre: `worker-0`, `worker-1`, etc.
+- `pub fn execute(...)` → recibe una función y la mete en la cola con `send`.
+- `let mensaje = receiver.lock().unwrap().recv();` → el hilo espera hasta que haya un trabajo.
+- `Ok(job) => job()` → cuando llega, lo ejecuta.
+- `Err(_) => break` → si la cola se cerró, el hilo termina.
+- `drop(self.sender.take())` → al apagar, cierra la cola.
+- `thread.join()` → espera a que los hilos terminen.
 
 **DI (Francisco):**
-> "En `Cargo.toml` tenemos cuatro dependencias. `rustls` es TLS puro en Rust; le quitamos el proveedor por defecto y activamos `ring`, que se compila con el Visual Studio que ya teníamos instalado. `rustls-pemfile` lee certificados en formato PEM. `rcgen` genera el certificado autofirmado para la demo. Y `num_cpus` nos da el número de hilos por defecto."
-
-**DI (Francisco):**
-> "En `main.rs`, lo primero es instalar el proveedor criptográfico. rustls no lo elige por nosotros: `ring::default_provider().install_default()`. Si lo olvidamos, el programa falla en cuanto intenta crear una conexión."
-
-**DI (Francisco):**
-> "Luego viene `Args::parse`, un parser manual con `env::args` para no añadir otra dependencia. Aceptamos `--addr`, `--threads`, `--cert` y `--key`. Fíjense en la validación: si te pasas solo `--cert` sin `--key`, salimos con error."
-
-**DI (Francisco):**
-> "La línea clave es esta: construimos `Arc::new(tls::build_server_config(...))`. `ServerConfig` es inmutable y es `Send + Sync`, así que un solo `Arc` lo comparten todos los hilos. No queremos leer y parsear el certificado una vez por petición."
-
-**DI (Francisco):**
-> "Y abajo está el *accept loop*. Por cada `TcpStream` hacemos `Arc::clone` del config y llamamos a `pool.execute` con un closure `move`. El `move` es obligatorio: el stream y el `Arc` tienen que viajar al otro hilo."
+> "Y ahí está el multihilo: cuatro hilos esperando en la cola. Fíjense en `recv()`: el bloqueo del `Mutex` se suelta antes de ejecutar `job()`, así que los cuatro pueden trabajar al mismo tiempo. Cuando cerramos la cola, todos salen y el programa termina limpio."
 
 ---
 
-## 2:30 – 4:20 · `pool.rs` — el corazón multihilo
-
-**EN PANTALLA:** `src/pool.rs`, resaltar `type Job`, `new`, `execute`, `Drop` y el bucle del worker.
+## 2:40 – 2:50 · Transición
 
 **DI (Francisco):**
-> "Aquí está la parte más importante de mi explicación. `Job` es un `Box<dyn FnOnce() + Send + 'static>`. Vamos por partes: `FnOnce` porque cada trabajo se ejecuta una sola vez; `Send` porque cruza un canal entre hilos; y `'static` porque el hilo no puede tomar prestados datos que mueran antes."
-
-**DI (Francisco):**
-> "En `new` creamos un canal `mpsc`. El receptor se envuelve en `Arc<Mutex<...>>`: el `Arc` lo comparten los cuatro workers y el `Mutex` garantiza que solo uno saque cada trabajo."
-
-**DI (Francisco):**
-> "Cada worker se llama `worker-0`, `worker-1`... mediante `thread::Builder::new().name(...)`. Eso parece un detalle cosmético pero nos va a servir en el demo: en los logs veremos qué hilo atendió cada petición."
-
-**DI (Francisco) — pausa y señalar la línea del `let mensaje`:**
-> "Este es el detalle que más quiero explicar. Escribimos `let mensaje = receiver.lock().unwrap().recv();`. El guard del `Mutex` se libera al terminar esa instrucción, **antes** de ejecutar `job()` —los temporales de un `let` mueren al final de la sentencia. Si en cambio ejecutáramos el trabajo dentro del mismo `match` sobre `receiver.lock().unwrap().recv()`, el guard seguiría vivo y solo un hilo podría trabajar a la vez. El pool quedaría convertido en un servidor monoproseso con cuatro hilos durmiendo."
-
-**DI (Francisco):**
-> "Cuando el canal se cierra, `recv()` devuelve `Err` y el worker rompe el bucle. ¿Quién lo cierra? El `Drop` de `ThreadPool`: `drop(self.sender.take())`. Después hacemos `join()` de cada hilo para no dejar ninguno colgado. Es apagado ordenado: no se pierde trabajo."
-
-**NOTA:** muestra `cargo test` ejecutando `ejecuta_todos_los_trabajos_en_paralelo` si quieres reforzar el punto.
-
----
-
-## 4:20 – 4:35 · Transición
-
-**EN PANTALLA:** Francisco mira a cámara y luego corte a Yeimar.
-
-**DI (Francisco):**
-> "Con eso tenemos la parte multihilo lista. Ahora le paso el turno a Yeimar, que va a explicar cómo se cifra todo eso con rustls y cómo se responde HTTP."
+> "Ya tenemos la parte de hilos. Ahora le paso a Yeimar, que explica cómo se cifra y cómo se responde."
 
 ---
 
 # PARTE 2 — Yeimar Gonzalez
 
-## 4:35 – 5:45 · `tls.rs` — certificados y `ServerConfig`
+## 2:50 – 3:40 · `tls.rs`, el certificado
 
-**EN PANTALLA:** `src/tls.rs`, después la carpeta `certs/` con el PEM.
+**EN PANTALLA:** abrir `src/tls.rs`.
+
+- `build_server_config(cert_path, key_path)` → función que devuelve la configuración HTTPS.
+- `(Some(c), Some(k)) => load_pem(c, k)?` → si nos dieron archivos, los cargamos.
+- `(None, None) => generate_and_save_self_signed()?` → si no, creamos uno de prueba.
+- `CertificateParams::new(vec!["localhost"])` → el certificado es para `localhost`.
+- `KeyPair::generate()?` → crea la clave privada.
+- `params.self_signed(&clave)?` → firma el certificado con esa clave.
+- `fs::write("certs/cert.pem", ...)` → guarda el certificado en un archivo.
+- `fs::write("certs/key.pem", ...)` → guarda la clave (ese archivo no se sube a GitHub).
+- `ServerConfig::builder().with_no_client_auth().with_single_cert(cert, key)?` → configura rustls con ese certificado.
 
 **DI (Yeimar):**
-> "Gracias, Francisco. Pasamos a TLS. `build_server_config` tiene dos caminos: si nos pasan `--cert` y `--key`, cargamos los PEM con `rustls_pemfile`; si no, generamos un certificado autofirmado con `rcgen`."
-
-**DI (Yeimar):**
-> "En la generación, `CertificateParams::new(vec!["localhost"])` rellena el *Subject Alternative Name*. Eso es importante: los navegadores modernos miran el SAN, no el CommonName, aunque también lo ponemos por compatibilidad. Llamamos a `KeyPair::generate`, firmamos con `params.self_signed(&clave)` y convertimos todo a DER, que es lo que rustls consume."
-
-**DI (Yeimar):**
-> "Guardamos los PEM en `certs/`. La clave privada está en `.gitignore` porque nunca debe subirse a GitHub. Para la demo está bien; en producción usaríamos un certificado de Let's Encrypt."
-
-**DI (Yeimar):**
-> "Finalmente `ServerConfig::builder().with_no_client_auth().with_single_cert(cert, key)`. `with_no_client_auth` significa que no pedimos certificado al cliente —no hacemos TLS mutuo— y `with_single_cert` instala nuestro par certificado/clave."
+> "En resumen: si hay certificado lo usamos; si no, creamos uno autofirmado y lo guardamos en la carpeta `certs`. Después rustls queda configurado con él. Por eso la primera vez vemos dos archivos nuevos."
 
 ---
 
-## 5:45 – 7:15 · `http.rs` — leyendo y respondiendo
+## 3:40 – 5:10 · `http.rs`, leer y responder
 
-**EN PANTALLA:** `src/http.rs`: `read_request`, `route`, `Response::as_bytes` y `handle_connection`.
+**EN PANTALLA:** abrir `src/http.rs`, primero `handle_connection`.
+
+- `ServerConnection::new(config)?` → crea una conexión TLS para este cliente.
+- `rustls::Stream::new(&mut conn, &mut socket)` → permite leer y escribir normal, pero cifrado.
+- `read_request(&mut tls)?` → lee la petición del cliente.
+- `route(&request, threads)` → decide qué respuesta toca.
+- `tls.write_all(&response.as_bytes())?;` → envía la respuesta ya cifrada.
+- `conn.send_close_notify();` → cierra la sesión TLS.
+
+**EN PANTALLA:** bajar a `read_request` y `route`.
+
+- `encontrar(&buf, b"\r\n\r\n")` → busca dónde terminan las cabeceras.
+- `let method = partes.next()...` → saca `GET` o `POST`.
+- `let path = partes.next()...` → saca la ruta, por ejemplo `/health`.
+- `if clave.eq_ignore_ascii_case("content-length")` → lee cuántos bytes trae el cuerpo.
+- `("GET", "/health") => Response::json(200, ...)` → responde `{"status":"ok"}`.
+- `("GET", "/info") => ...` → responde versión, hilos y worker.
+- `("POST", "/echo") => Response::text(200, &req.body)` → devuelve lo que nos mandaron.
+- `_ => Response::html(404, ...)` → cualquier otra ruta da 404.
+- `format!("Content-Length: {}", self.body.len())` → dice cuántos bytes tiene la respuesta.
 
 **DI (Yeimar):**
-> "El módulo HTTP está escrito a mano para que se vea el protocolo. `read_request` lee en bloques de 1024 bytes hasta encontrar `\r\n\r\n`, que marca el final de las cabeceras. La función `encontrar` es un `windows().position()` hecho a mano para que no haya magia."
-
-**DI (Yeimar):**
-> "Después buscamos la cabecera `Content-Length` —con `eq_ignore_ascii_case`, porque los nombres de cabeceras no distinguen mayúsculas— y leemos exactamente ese número de bytes de cuerpo. Así funciona `POST /echo`: devolvemos el cuerpo tal cual."
-
-**DI (Yeimar):**
-> "El enrutador es un `match` sobre `(método, ruta)`. Tenemos la portada, `/health`, `/info`, `/echo` y un 404. Fíjense en `/info`: devuelve la versión, el número de hilos y el nombre del worker que está respondiendo. Ese campo es la prueba de que el pool de Francisco reparte trabajo."
-
-**DI (Yeimar):**
-> "`Response::as_bytes` monta las cabeceras con `Content-Length` y `Connection: close`. El `Content-Length` le dice al cliente cuántos bytes leer; el `close` evita keep-alive y hace que el ciclo petición-respuesta sea corto y predecible."
-
-**DI (Yeimar):**
-> "Y aquí la línea que conecta todo: `rustls::Stream::new(&mut conn, &mut socket)`. Implementa `Read` y `Write`, cifrando y descifrando por debajo. Por eso el código HTTP es idéntico al de un `TcpStream` sin cifrar. Al terminar llamamos a `send_close_notify`, que es el 'adiós' criptográfico de TLS, y hacemos un último `flush`."
-
-**DI (Yeimar):**
-> "Dos protecciones extra: timeout de 10 segundos de lectura y escritura para que un cliente silencioso no ocupe un worker para siempre, y límite de 64 KiB de cabeceras."
+> "Es un `match` sencillo: según el método y la ruta, devuelve una cosa u otra. `/info` es el más divertido porque muestra el nombre del worker que respondió. Y `Content-Length` le dice al navegador cuándo terminó la respuesta."
 
 ---
 
-## 7:15 – 8:25 · Demo en vivo
+## 5:10 – 6:10 · Demostración
 
-**EN PANTALLA:** terminal. Ejecutar:
+**EN PANTALLA:** terminal con `cargo run --release -- --threads 4`, y otra terminal con los `curl`.
+
+**DI (Yeimar):**
+> "Lo ejecutamos con cuatro hilos y probamos las rutas."
 
 ```powershell
 cargo run --release -- --threads 4
-```
-
-**DI (Yeimar):**
-> "Lo ejecutamos. Salen tres líneas: la dirección, los cuatro hilos y las rutas. Se genera el certificado autofirmado en `certs/`."
-
-**EN PANTALLA:** en otra terminal, ejecutar una detrás de otra:
-
-```powershell
 curl -k https://localhost:8443/health
 curl -k https://localhost:8443/info
 curl -k -X POST -d "hola desde rust" https://localhost:8443/echo
-curl --cacert certs/cert.pem https://localhost:8443/health
 ```
 
 **DI (Yeimar):**
-> "Usamos `-k` porque el certificado es autofirmado; con `--cacert certs/cert.pem` le decimos a curl que confíe expresamente en nuestro certificado. Fíjense en `/info`: la primera petición la atendió `worker-0`, la segunda `worker-1`. Y en la consola del servidor aparece un `GET /health -> 200` con el nombre del hilo."
-
-**DI (Yeimar):**
-> "Si repetimos `/info` diez veces veremos cómo van cambiando los workers. Eso es exactamente lo que queríamos demostrar."
-
-**NOTA:** deja la terminal del servidor visible a la izquierda y curl a la derecha.
-
----
-
-## 8:25 – 8:45 · Pruebas y cierre técnico
-
-**EN PANTALLA:** `cargo test` y el final de `investigacion.md`.
-
-**DI (Yeimar):**
-> "Antes de terminar, las pruebas. `cargo test` comprueba el parser de GET y POST, el enrutado, la serialización de respuestas y que el pool ejecuta los ocho trabajos que le enviamos. También hay un test que verifica que `ThreadPool::new(0)` hace *panic*. Como siguiente paso, si quisiéramos miles de conexiones, migraríamos a Tokio manteniendo rustls. Pero para este trabajo el pool de hilos cumple el requisito y es mucho más fácil de explicar línea por línea."
+> "`-k` se usa porque el certificado es de prueba. En `/info` vemos `worker-0`, `worker-1`... eso confirma que el trabajo se reparte. Si repetimos la petición, cambia el worker."
 
 ---
 
 # CIERRE — Ambos
 
-## 8:45 – 9:00 · Créditos
-
-**EN PANTALLA:** diapositiva final con el enlace al repositorio de GitHub y los nombres.
+## 6:10 – 6:25 · Créditos
 
 **DI (Francisco):**
-> "Eso es todo. El código, la investigación y este guion están en el repositorio de GitHub."
+> "El código, la investigación y este guion están en GitHub."
 
 **DI (Yeimar):**
 > "Somos Francisco Sevilla y Yeimar Gonzalez. Gracias por ver el video."
@@ -202,10 +166,9 @@ curl --cacert certs/cert.pem https://localhost:8443/health
 
 ## Checklist antes de grabar
 
-- [x] Nombres reales en el guion: Francisco Sevilla y Yeimar Gonzalez.
+- [x] Explicación línea por línea y sin profundizar demasiado.
+- [x] Nombres: Francisco Sevilla y Yeimar Gonzalez.
 - [ ] `cargo test` en verde.
-- [ ] `cargo run --release -- --threads 4` arranca sin errores.
+- [ ] `cargo run --release -- --threads 4` funciona.
 - [ ] `curl -k https://localhost:8443/health` responde `{"status":"ok"}`.
-- [ ] Terminal con fuente grande (16–18 pt) y alto contraste.
-- [ ] Subir `key.pem` **nunca** (comprobar `.gitignore`).
-- [ ] Video y documentos dentro de la carpeta `documentacion/`.
+- [ ] No subir `certs/key.pem`.
