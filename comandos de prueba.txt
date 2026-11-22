@@ -1,0 +1,70 @@
+COMANDOS DE PRUEBA - servidor-https-rust
+========================================
+
+Integrantes: Francisco Sevilla y Yeimar Gonzalez
+Carpeta del proyecto:
+C:\Users\Usuario\Documents\Proyecto predeterminado\servidor-https-rust
+
+--------------------------------------------------
+1) ABRIR TERMINAL EN LA CARPETA DEL PROYECTO
+--------------------------------------------------
+cd "C:\Users\Usuario\Documents\Proyecto predeterminado\servidor-https-rust"
+
+--------------------------------------------------
+2) COMPILAR Y EJECUTAR EL SERVIDOR
+--------------------------------------------------
+cargo build
+cargo run --release -- --threads 4
+
+Si quieres otro puerto o número de hilos:
+cargo run --release -- --addr 127.0.0.1:9443 --threads 2
+
+Ver opciones:
+cargo run -- --help
+
+--------------------------------------------------
+3) PROBAR EN OTRA TERMINAL (mientras el servidor sigue abierto)
+--------------------------------------------------
+curl -k https://localhost:8443/
+curl -k https://localhost:8443/health
+curl -k https://localhost:8443/info
+curl -k -X POST -d "hola desde rust" https://localhost:8443/echo
+curl -k https://localhost:8443/nope
+curl --cacert certs/cert.pem https://localhost:8443/health
+
+Respuestas esperadas:
+/       -> pagina HTML
+/health -> {"status":"ok"}
+/info   -> {"version":"0.1.0","hilos":4,"worker":"worker-N"}
+/echo   -> hola desde rust
+/nope   -> 404 Not Found
+
+Para detener el servidor: Ctrl + C
+
+--------------------------------------------------
+4) PRUEBAS AUTOMATICAS Y CALIDAD
+--------------------------------------------------
+cargo test
+cargo clippy --all-targets -- -D warnings
+cargo fmt --check
+
+--------------------------------------------------
+5) SUBIR A GITHUB
+--------------------------------------------------
+(En una terminal NUEVA, con el PATH actualizado)
+
+cd "C:\Users\Usuario\Documents\Proyecto predeterminado\servidor-https-rust"
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+gh auth login
+.\subir_github.ps1
+
+Repo privado:
+.\subir_github.ps1 -Visibility private
+
+--------------------------------------------------
+6) GENERAR EL DOCUMENTO WORD DEL GUION
+--------------------------------------------------
+python documentacion\generar_docx.py
+
+El archivo se crea en:
+documentacion\guion_video.docx
